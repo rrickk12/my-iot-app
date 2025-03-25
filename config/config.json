@@ -1,0 +1,10 @@
+{
+    "raspberryIp": "192.168.15.19",
+    "apiPort": 3000,
+    "sensorServicePort": 3001,
+    "websocketPort": 1880,
+    "websocketPath": "/ws/data",
+    "debug": true,
+    "localhost": "127.0.0.1"
+  }
+  

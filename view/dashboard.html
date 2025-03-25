@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sensor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 1em;
+    }
+    .sensor-card {
+      background: white;
+      margin: 1em 0;
+      padding: 1em;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    canvas {
+      max-width: 100%;
+    }
+    .export-btn {
+      margin-top: 0.5em;
+    }
+  </style>
+</head>
+<body>
+  <h1>📊 Sensor Dashboard</h1>
+  <div id="dashboard"><p id="empty-msg">Loading data...</p></div>
+
+  <script>
+    const dashboard = document.getElementById("dashboard");
+    const charts = {};
+    const dataStore = {};
+
+    async function fetchSummary() {
+      try {
+        const res = await fetch('/api/devices/summary');
+        const devices = await res.json();
+        devices.forEach(d => {
+          createSensorCard(d.sensorId, d.latest.temperature, d.latest.humidity);
+          fetchHistory(d.sensorId); // load full chart
+        });
+      } catch (err) {
+        console.error('Failed to fetch summary:', err);
+      }
+    }
+
+    function createSensorCard(sensorId, latestTemp = '--', latestHum = '--') {
+      document.getElementById('empty-msg')?.remove();
+
+      const container = document.createElement("div");
+      container.className = "sensor-card";
+      container.id = `sensor-${sensorId}`;
+
+      const title = document.createElement("h2");
+      title.textContent = `Sensor: ${sensorId}`;
+
+      const summary = document.createElement("p");
+      summary.className = "summary-box";
+      summary.textContent = `🌡️ ${latestTemp ?? '--'}°C • 💧 ${latestHum ?? '--'}%`;
+
+      const canvas = document.createElement("canvas");
+      canvas.id = `chart-${sensorId}`;
+
+      const exportBtn = document.createElement("button");
+      exportBtn.textContent = "Export CSV";
+      exportBtn.className = "export-btn";
+      exportBtn.onclick = () => downloadCSV(sensorId);
+
+      container.appendChild(title);
+      container.appendChild(summary);
+      container.appendChild(canvas);
+      container.appendChild(exportBtn);
+      dashboard.appendChild(container);
+
+      const ctx = canvas.getContext("2d");
+      charts[sensorId] = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Temperature (°C)",
+              data: [],
+              borderColor: "#e74c3c",
+              fill: false,
+            },
+            {
+              label: "Humidity (%)",
+              data: [],
+              borderColor: "#3498db",
+              fill: false,
+            }
+          ]
+        },
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'time',
+              time: { unit: 'minute' },
+              title: { display: true, text: 'Time' }
+            },
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Value' }
+            }
+          },
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: context => `${context.dataset.label}: ${context.parsed.y.toFixed(2)}`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    async function fetchHistory(sensorId) {
+      try {
+        const res = await fetch(`/api/devices/${sensorId}/history?limit=100`);
+        const history = await res.json();
+
+        dataStore[sensorId] = [];
+
+        history.forEach(({ timestamp, temperature, humidity }) => {
+          const time = new Date(timestamp);
+          charts[sensorId].data.labels.push(time);
+          charts[sensorId].data.datasets[0].data.push(temperature);
+          charts[sensorId].data.datasets[1].data.push(humidity);
+          dataStore[sensorId].push({ timestamp: time.toISOString(), temperature, humidity });
+        });
+
+        charts[sensorId].update();
+      } catch (err) {
+        console.error(`Error loading history for ${sensorId}:`, err);
+      }
+    }
+
+    function downloadCSV(sensorId) {
+      const rows = ["timestamp,temperature,humidity"];
+      dataStore[sensorId]?.forEach(entry => {
+        rows.push(`${entry.timestamp},${entry.temperature},${entry.humidity}`);
+      });
+      const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `sensor-${sensorId}.csv`;
+      link.click();
+    }
+
+    fetchSummary();
+  </script>
+</body>
+</html>

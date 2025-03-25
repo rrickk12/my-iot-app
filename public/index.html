@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sensor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 1em;
+    }
+
+    #dashboard {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1em;
+    }
+
+    .sensor-card {
+      background: white;
+      padding: 1em;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 400px;
+    }
+
+    canvas {
+      max-width: 100%;
+      height: 200px !important;
+      margin-top: 1em;
+    }
+
+    .export-btn {
+      margin-top: 0.5em;
+      align-self: flex-end;
+    }
+
+    .sensor-data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1em;
+      font-size: 0.9em;
+    }
+
+    .sensor-data-table th,
+    .sensor-data-table td {
+      border: 1px solid #ccc;
+      padding: 4px 6px;
+      text-align: center;
+    }
+
+    .sensor-data-table thead {
+      background-color: #f0f0f0;
+    }
+    .sensor-name {
+      cursor: pointer;
+      border-bottom: 1px dashed #aaa;
+    }
+
+    .sensor-name:focus {
+      outline: none;
+      border-bottom: 1px solid #3498db;
+      background-color: #eaf6ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌡️ Live Sensor Dashboard</h1>
+  <button onclick="exportAllXLSX()" style="margin-bottom: 1em;">⬇️ Export All XLSX</button>
+  <div id="dashboard"><p id="empty-msg">Loading data...</p></div>
+
+  <script>
+    const dashboard = document.getElementById("dashboard");
+    const charts = {};
+    const dataStore = {};
+    const sensorNames = {};
+
+    async function fetchSummaryAndUpdate() {
+      try {
+        const res = await fetch('/api/devices/summary');
+        const devices = await res.json();
+
+        for (const d of devices) {
+          sensorNames[d.sensorId] = d.sensorName || d.sensorId;
+
+          if (!charts[d.sensorId]) {
+            createSensorCard(d.sensorId);
+            dataStore[d.sensorId] = [];
+            await loadHistory(d.sensorId);
+          }
+
+          updateCard(d.sensorId, d.latest.timestamp, d.latest.temperature, d.latest.humidity);
+        }
+      } catch (err) {
+        console.error('Error fetching summary:', err);
+      }
+    }
+
+    function createSensorCard(sensorId) {
+      document.getElementById('empty-msg')?.remove();
+
+      const name = sensorNames[sensorId] || sensorId;
+
+      const container = document.createElement("div");
+      container.className = "sensor-card";
+      container.id = `sensor-${sensorId}`;
+
+      const title = document.createElement("h2");
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = name;
+      nameSpan.className = "sensor-name";
+      nameSpan.contentEditable = true;
+      nameSpan.dataset.id = sensorId;
+      nameSpan.title = "Click to rename";
+      title.append("Sensor: ", nameSpan, ` (${sensorId})`);
+
+
+      nameSpan.onclick = () => {
+        const newName = prompt("Enter custom name for sensor:", nameSpan.textContent);
+        if (newName && newName.trim()) {
+          fetch(`/api/sensors/${sensorId}/name`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName.trim() })
+          })
+          .then(res => {
+            if (res.ok) {
+              nameSpan.textContent = newName.trim();
+              sensorNames[sensorId] = newName.trim();
+              title.innerHTML = `Sensor: <span>${newName.trim()}</span> (${sensorId})`;
+            } else {
+              alert("Failed to save name.");
+            }
+          });
+        }
+      };
+
+      title.innerHTML = `Sensor: `;
+      title.appendChild(nameSpan);
+      title.innerHTML += ` (${sensorId})`;
+
+      const summary = document.createElement("p");
+      summary.className = "summary-box";
+      summary.textContent = "🌡️ -- °C • 💧 -- %";
+
+      const canvas = document.createElement("canvas");
+      canvas.id = `chart-${sensorId}`;
+
+      const table = document.createElement("table");
+      table.className = "sensor-data-table";
+      table.innerHTML = `
+        <thead>
+          <tr><th>Time</th><th>Temp (°C)</th><th>Humidity (%)</th></tr>
+        </thead>
+        <tbody id="table-body-${sensorId}"></tbody>
+      `;
+
+      const exportCsvBtn = document.createElement("button");
+      exportCsvBtn.textContent = "Export CSV";
+      exportCsvBtn.className = "export-btn";
+      exportCsvBtn.onclick = () => downloadCSV(sensorId);
+
+      const exportXlsxBtn = document.createElement("button");
+      exportXlsxBtn.textContent = "Export XLSX";
+      exportXlsxBtn.className = "export-btn";
+      exportXlsxBtn.onclick = () => exportXLSX(sensorId);
+
+      container.appendChild(title);
+      container.appendChild(summary);
+      container.appendChild(canvas);
+      container.appendChild(table);
+      container.appendChild(exportCsvBtn);
+      container.appendChild(exportXlsxBtn);
+      dashboard.appendChild(container);
+
+      const ctx = canvas.getContext("2d");
+      charts[sensorId] = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Temperature (°C)",
+              data: [],
+              borderColor: "#e74c3c",
+              fill: false,
+            },
+            {
+              label: "Humidity (%)",
+              data: [],
+              borderColor: "#3498db",
+              fill: false,
+            }
+          ]
+        },
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'time',
+              time: { unit: 'minute' },
+              title: { display: true, text: 'Time' }
+            },
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Value' }
+            }
+          },
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    async function loadHistory(sensorId) {
+      try {
+        const res = await fetch(`/api/devices/${sensorId}/history?limit=50`);
+        const data = await res.json();
+
+        const chart = charts[sensorId];
+        dataStore[sensorId] = [];
+
+        data.forEach(({ timestamp, temperature, humidity }) => {
+          const time = new Date(timestamp);
+          if (isNaN(time)) return;
+
+          chart.data.labels.push(time);
+          chart.data.datasets[0].data.push(temperature);
+          chart.data.datasets[1].data.push(humidity);
+
+          dataStore[sensorId].push({
+            timestamp: time.toISOString(),
+            temperature,
+            humidity
+          });
+
+          const tbody = document.getElementById(`table-body-${sensorId}`);
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${time.toLocaleTimeString()}</td>
+            <td>${temperature.toFixed(2)}</td>
+            <td>${humidity.toFixed(2)}</td>
+          `;
+          tbody.prepend(row);
+        });
+
+        chart.update();
+      } catch (err) {
+        console.error(`Failed to load history for ${sensorId}:`, err);
+      }
+    }
+
+    function updateCard(sensorId, timestamp, temperature, humidity) {
+      const parsed = new Date(Number(timestamp));
+      if (isNaN(parsed)) {
+        console.warn(`⚠️ Skipping invalid timestamp for ${sensorId}:`, timestamp);
+        return;
+      }
+
+      const chart = charts[sensorId];
+      chart.data.labels.push(parsed);
+      chart.data.datasets[0].data.push(temperature);
+      chart.data.datasets[1].data.push(humidity);
+      if (chart.data.labels.length > 100) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+        chart.data.datasets[1].data.shift();
+      }
+      chart.update();
+
+      dataStore[sensorId].push({
+        timestamp: parsed.toISOString(),
+        temperature,
+        humidity
+      });
+
+      const summaryBox = document.querySelector(`#sensor-${sensorId} .summary-box`);
+      if (summaryBox) {
+        summaryBox.textContent = `🌡️ ${temperature.toFixed(2)}°C • 💧 ${humidity.toFixed(2)}%`;
+      }
+
+      const tbody = document.getElementById(`table-body-${sensorId}`);
+      if (tbody) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${parsed.toLocaleTimeString()}</td>
+          <td>${temperature.toFixed(2)}</td>
+          <td>${humidity.toFixed(2)}</td>
+        `;
+        tbody.prepend(row);
+        if (tbody.rows.length > 5) tbody.deleteRow(-1);
+      }
+    }
+
+    function downloadCSV(sensorId) {
+      const name = sensorNames[sensorId] || sensorId;
+      const rows = [["sensorId", "sensorName", "timestamp", "temperature", "humidity"]];
+      dataStore[sensorId]?.forEach(entry => {
+        rows.push([sensorId, name, entry.timestamp, entry.temperature, entry.humidity]);
+      });
+      const csv = rows.map(r => r.join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `sensor-${sensorId}.csv`;
+      link.click();
+    }
+
+    function exportXLSX(sensorId) {
+      const name = sensorNames[sensorId] || sensorId;
+      const sheet = [["sensorId", "sensorName", "timestamp", "temperature", "humidity"]];
+      dataStore[sensorId]?.forEach(entry => {
+        sheet.push([sensorId, name, entry.timestamp, entry.temperature, entry.humidity]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(sheet);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 30));
+      XLSX.writeFile(wb, `sensor-${sensorId}.xlsx`);
+    }
+
+    function exportAllXLSX() {
+      const wb = XLSX.utils.book_new();
+      for (const sensorId in dataStore) {
+        const name = sensorNames[sensorId] || sensorId;
+        const sheet = [["sensorId", "sensorName", "timestamp", "temperature", "humidity"]];
+        dataStore[sensorId].forEach(entry => {
+          sheet.push([sensorId, name, entry.timestamp, entry.temperature, entry.humidity]);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(sheet);
+        XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 30));
+      }
+      XLSX.writeFile(wb, "all-sensors.xlsx");
+    }
+
+    document.addEventListener('blur', async (e) => {
+      if (e.target.classList.contains('sensor-name')) {
+        const sensorId = e.target.dataset.id;
+        const newName = e.target.textContent.trim();
+        if (newName && sensorNames[sensorId] !== newName) {
+          try {
+            const res = await fetch(`/api/sensors/${sensorId}/name`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: newName.trim() })
+            });
+            if (res.ok) {
+              sensorNames[sensorId] = newName;
+              console.log(`✅ Updated name for ${sensorId} -> ${newName}`);
+            } else {
+              console.warn(`❌ Failed to update name for ${sensorId}`);
+            }
+          } catch (err) {
+            console.error("❌ Error updating name:", err);
+          }
+        }
+      }
+    }, true);
+
+    fetchSummaryAndUpdate();
+    setInterval(fetchSummaryAndUpdate, 10000);
+  </script>
+</body>
+</html>
