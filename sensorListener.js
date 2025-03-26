@@ -8,44 +8,59 @@ function startSensorListener() {
 
   app.use(express.json());
 
-  // 🔁 In-memory cache to prevent duplicate storage
+  // In-memory cache to prevent duplicate storage.
+  // The key is a combination of the sensor MAC and a timestamp.
   const recentCache = new Map();
 
+  /**
+   * Check if a reading is a duplicate.
+   * @param {string} mac - Sensor identifier.
+   * @param {string} timestamp - ISO timestamp of the reading.
+   * @returns {boolean} - true if duplicate.
+   */
   function isDuplicate(mac, timestamp) {
     const key = `${mac}-${timestamp}`;
     if (recentCache.has(key)) return true;
     recentCache.set(key, true);
-    setTimeout(() => recentCache.delete(key), 30 * 1000); // Keep for 30s
+    // Remove key after 30 seconds.
+    setTimeout(() => recentCache.delete(key), 30 * 1000);
     return false;
   }
 
   app.post('/data', async (req, res) => {
     const payload = req.body;
-    if (!Array.isArray(payload)) return res.status(400).json({ error: "Expected an array" });
+    if (!Array.isArray(payload)) {
+      return res.status(400).json({ error: "Expected an array" });
+    }
 
     console.log(`📦 Received POST with ${payload.length} items`);
 
     for (const item of payload) {
-      if (item.type === 'MST01' && item.mac && item.temperature !== undefined && item.humidity !== undefined) {
-        const ts = new Date(item.timestamp).getTime();
+      // Destructure the required properties from each item.
+      const { type, mac, temperature, humidity } = item;
+      // Process only if the type is 'MST01' and required fields exist.
+      if (type === 'MST01' && mac && temperature !== undefined && humidity !== undefined) {
+        // Use the sensor's provided timestamp if available; otherwise, use current time.
+        const itemTimestamp = item.timestamp ? new Date(item.timestamp) : new Date();
+        const ts = itemTimestamp.toISOString();
 
-        if (isDuplicate(item.mac, ts)) {
-          console.log(`⏩ Skipped duplicate: ${item.mac} @ ${item.timestamp}`);
+        // Use the duplicate check based on MAC and timestamp.
+        if (isDuplicate(mac, ts)) {
+          console.log(`⏩ Skipped duplicate: ${mac} @ ${ts}`);
           continue;
         }
 
         try {
           await insertReading({
-            sensorId: item.mac,
+            sensorId: mac,
             timestamp: ts,
-            temperature: item.temperature,
-            humidity: item.humidity,
+            temperature,
+            humidity,
             rawHex: null
           });
-
-          console.log(`✅ Stored: ${item.mac} | ${item.temperature}°C | ${item.humidity}%`);
+          console.log(`✅ Stored: ${mac} | ${temperature}°C | ${humidity}%`);
         } catch (err) {
-          console.error(`❌ Failed to insert ${item.mac}:`, err.message);
+          console.error(`❌ Failed to insert ${mac}:`, err.message);
         }
       }
     }

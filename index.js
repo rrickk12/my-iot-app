@@ -10,7 +10,7 @@ const server = http.createServer(app);
 
 const apiRoutes = require('./network/api');
 const ingestRoute = require('./network/ingest');
-const startSensorListener = require('./sensorListener'); // <-- NEW
+const startSensorListener = require('./sensorListener');
 
 app.use(express.json());
 app.use('/api', apiRoutes);

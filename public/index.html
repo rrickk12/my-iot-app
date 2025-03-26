@@ -1,186 +1,379 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Sensor Dashboard</title>
+  <title>Painel de Sensores em Tempo Real</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- Chart.js + XLSX -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  
   <style>
+    /* Global Styles */
+    * {
+      box-sizing: border-box;
+    }
     body {
-      font-family: sans-serif;
-      background-color: #f5f5f5;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(to bottom, #e0eafc, #cfdef3);
       margin: 0;
       padding: 1em;
+      color: #333;
     }
-
+    h1 {
+      text-align: center;
+      margin-bottom: 1em;
+      font-weight: 700;
+      color: #2c3e50;
+    }
+    
+    /* Dashboard Layout */
     #dashboard {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 1em;
+      margin-top: 1em;
     }
-
     .sensor-card {
-      background: white;
-      padding: 1em;
-      border-radius: 8px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      background: #fff;
+      padding: 1.2em;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      min-height: 400px;
+      min-height: 430px;
+      transition: transform 0.2s ease;
     }
-
+    .sensor-card:hover {
+      transform: translateY(-3px);
+    }
+    
+    /* Charts */
     canvas {
       max-width: 100%;
-      height: 200px !important;
+      height: 230px !important;
       margin-top: 1em;
     }
-
-    .export-btn {
-      margin-top: 0.5em;
-      align-self: flex-end;
-    }
-
+    
+    /* Tables */
     .sensor-data-table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 1em;
+      margin-top: 0.8em;
       font-size: 0.9em;
     }
-
     .sensor-data-table th,
     .sensor-data-table td {
-      border: 1px solid #ccc;
-      padding: 4px 6px;
+      border: 1px solid #ddd;
+      padding: 0.5em;
       text-align: center;
     }
-
     .sensor-data-table thead {
-      background-color: #f0f0f0;
+      background-color: #f7f7f7;
     }
+    
+    /* Buttons */
+    button {
+      background-color: #3498db;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 0.6em 1em;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    .export-btn {
+      margin-top: 0.5em;
+    }
+    .btn-row {
+      display: flex;
+      gap: 0.8em;
+      margin-top: 0.8em;
+    }
+    
+    /* Editable Sensor Name */
     .sensor-name {
       cursor: pointer;
       border-bottom: 1px dashed #aaa;
-    }
-
-    .sensor-name:focus {
       outline: none;
+    }
+    .sensor-name:focus {
       border-bottom: 1px solid #3498db;
-      background-color: #eaf6ff;
+      background-color: #ecf0f1;
+    }
+    
+    /* Aggregation & Export Controls */
+    #aggregation-controls {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.2em;
+      margin-bottom: 1.5em;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #aggregation-controls h2 {
+      margin: 0 0 1em;
+      font-size: 1.4em;
+      color: #2c3e50;
+    }
+    .agg-row {
+      display: flex;
+      gap: 1em;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 0.8em;
+    }
+    #aggregation-controls label {
+      font-weight: 500;
+      color: #34495e;
+    }
+    #aggregation-controls select,
+    #aggregation-controls input {
+      padding: 0.5em;
+      font-size: 1em;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    #aggregation-controls p {
+      margin: 0;
+      font-size: 1em;
+      color: #2c3e50;
+    }
+    
+    /* Misc */
+    #empty-msg {
+      grid-column: 1 / -1;
+      text-align: center;
+      font-size: 1.2em;
+      color: #555;
     }
   </style>
 </head>
 <body>
-  <h1>🌡️ Live Sensor Dashboard</h1>
-  <button onclick="exportAllXLSX()" style="margin-bottom: 1em;">⬇️ Export All XLSX</button>
-  <div id="dashboard"><p id="empty-msg">Loading data...</p></div>
+  <h1>🌡️ Painel de Sensores em Tempo Real</h1>
+
+  <!-- Botão de exportar todos XLSX -->
+  <div style="text-align: center; margin-bottom: 1em;">
+    <button onclick="exportAllXLSX()">⬇️ Exportar Todos XLSX</button>
+  </div>
+
+  <!-- Bloco único para Agregação e Exportação -->
+  <div id="aggregation-controls">
+    <h2>Leitura Programada e Exportação</h2>
+
+    <!-- Linha 1: Programação / Intervalo / Execução -->
+    <div class="agg-row">
+      <button id="toggle-aggregation">Programação: Desligada</button>
+
+      <label for="aggregation-timeframe">Intervalo de Tempo:</label>
+      <select id="aggregation-timeframe">
+        <option value="5m">5 minutos</option>
+        <option value="15m">15 minutos</option>
+        <option value="30m">30 minutos</option>
+        <option value="1h">1 hora</option>
+        <option value="2h">2 horas</option>
+        <option value="4h">4 horas</option>
+        <option value="6h">6 horas</option>
+        <option value="8h">8 horas</option>
+        <option value="12h">12 horas</option>
+        <option value="24h">24 horas</option>
+      </select>
+      <button id="trigger-aggregation">Confirmar Intervalo</button>
+      <p>Leitura Selecionada: <span id="selected-interval">--</span></p>
+
+      
+    </div>
+
+    <!-- Linha 2: Filtro de Data / Exportar -->
+    <div class="agg-row">
+      <label for="export-start">Data Inicial:</label>
+      <input type="date" id="export-start">
+
+      <label for="export-end">Data Final:</label>
+      <input type="date" id="export-end">
+
+      <button onclick="exportData()">Exportar Dados</button>
+    </div>
+  </div>
+
+  <div id="dashboard">
+    <p id="empty-msg">Carregando dados...</p>
+  </div>
 
   <script>
     const dashboard = document.getElementById("dashboard");
     const charts = {};
     const dataStore = {};
     const sensorNames = {};
+    let aggregationEnabled = false;
+    let aggregationInterval = null;
+
+    // Restaurar estado da agregação e intervalo a partir do localStorage
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedAggEnabled = localStorage.getItem('aggregationEnabled');
+      if (savedAggEnabled !== null) {
+        aggregationEnabled = (savedAggEnabled === 'true');
+        setAggregatorUIState();
+        if (aggregationEnabled) {
+          aggregationInterval = setInterval(triggerAggregation, 60000);
+        }
+      }
+      const savedTimeFrame = localStorage.getItem('aggregationTimeFrame');
+      if (savedTimeFrame) {
+        document.getElementById('aggregation-timeframe').value = savedTimeFrame;
+      }
+      updateSelectedIntervalLabel();
+    });
+    document.addEventListener('DOMContentLoaded', () => {
+      const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
+      const exportStart = document.getElementById('export-start');
+      const exportEnd = document.getElementById('export-end');
+      if (exportStart && !exportStart.value) {
+        exportStart.value = today;
+      }
+      if (exportEnd && !exportEnd.value) {
+        exportEnd.value = today;
+      }
+    });
+
+    // Atualiza o botão de estado de agregação
+    function setAggregatorUIState() {
+      const toggleBtn = document.getElementById('toggle-aggregation');
+      toggleBtn.textContent = `Programação: ${aggregationEnabled ? 'Ligada' : 'Desligada'}`;
+    }
+
+    // Atualiza o rótulo "Leitura Selecionada"
+    function updateSelectedIntervalLabel() {
+      const tfSelect = document.getElementById('aggregation-timeframe');
+      const selectedText = tfSelect.options[tfSelect.selectedIndex].textContent;
+      document.getElementById('selected-interval').textContent = selectedText;
+    }
+
+    // Toggle de agregação
+    document.getElementById('toggle-aggregation').addEventListener('click', () => {
+      aggregationEnabled = !aggregationEnabled;
+      setAggregatorUIState();
+      localStorage.setItem('aggregationEnabled', aggregationEnabled.toString());
+      if (aggregationEnabled) {
+        aggregationInterval = setInterval(triggerAggregation, 60000);
+      } else {
+        clearInterval(aggregationInterval);
+      }
+    });
+
+    // Atualiza o intervalo de tempo selecionado
+    document.getElementById('aggregation-timeframe').addEventListener('change', () => {
+      const newVal = document.getElementById('aggregation-timeframe').value;
+      localStorage.setItem('aggregationTimeFrame', newVal);
+      updateSelectedIntervalLabel();
+    });
+
+    // Agregação manual
+    document.getElementById('trigger-aggregation').addEventListener('click', async () => {
+      const aggregationTimeFrame = document.getElementById('aggregation-timeframe').value;
+      try {
+        const res = await fetch(`/api/aggregates/trigger?timeFrame=${aggregationTimeFrame}`);
+        if (res.ok) {
+          alert("Agregação acionada com sucesso!");
+        } else {
+          alert("Falha ao acionar agregação.");
+        }
+      } catch (err) {
+        console.error("Erro ao acionar agregação:", err);
+        alert("Erro ao acionar agregação.");
+      }
+    });
+
+    // Função de agregação periódica (para cada sensor)
+    async function triggerAggregation() {
+      const aggregationTimeFrame = document.getElementById('aggregation-timeframe').value;
+      for (const sensorId in sensorNames) {
+        try {
+          await fetch(`/api/aggregates/trigger?sensorId=${sensorId}&timeFrame=${aggregationTimeFrame}`);
+        } catch (err) {
+          console.error(`Erro de agregação para sensor ${sensorId}:`, err);
+        }
+      }
+    }
+
+    // Funções de atualização dos dados e criação dos cards seguem abaixo...
 
     async function fetchSummaryAndUpdate() {
       try {
         const res = await fetch('/api/devices/summary');
         const devices = await res.json();
-
         for (const d of devices) {
           sensorNames[d.sensorId] = d.sensorName || d.sensorId;
-
           if (!charts[d.sensorId]) {
             createSensorCard(d.sensorId);
             dataStore[d.sensorId] = [];
             await loadHistory(d.sensorId);
           }
-
           updateCard(d.sensorId, d.latest.timestamp, d.latest.temperature, d.latest.humidity);
         }
       } catch (err) {
-        console.error('Error fetching summary:', err);
+        console.error('Erro ao buscar resumo:', err);
       }
     }
 
     function createSensorCard(sensorId) {
       document.getElementById('empty-msg')?.remove();
-
       const name = sensorNames[sensorId] || sensorId;
-
       const container = document.createElement("div");
       container.className = "sensor-card";
       container.id = `sensor-${sensorId}`;
-
       const title = document.createElement("h2");
       const nameSpan = document.createElement("span");
       nameSpan.textContent = name;
       nameSpan.className = "sensor-name";
       nameSpan.contentEditable = true;
       nameSpan.dataset.id = sensorId;
-      nameSpan.title = "Click to rename";
-      title.append("Sensor: ", nameSpan, ` (${sensorId})`);
-
-
-      nameSpan.onclick = () => {
-        const newName = prompt("Enter custom name for sensor:", nameSpan.textContent);
-        if (newName && newName.trim()) {
-          fetch(`/api/sensors/${sensorId}/name`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName.trim() })
-          })
-          .then(res => {
-            if (res.ok) {
-              nameSpan.textContent = newName.trim();
-              sensorNames[sensorId] = newName.trim();
-              title.innerHTML = `Sensor: <span>${newName.trim()}</span> (${sensorId})`;
-            } else {
-              alert("Failed to save name.");
-            }
-          });
-        }
-      };
-
-      title.innerHTML = `Sensor: `;
+      nameSpan.title = "Clique para renomear";
+      title.textContent = "Sensor: ";
       title.appendChild(nameSpan);
       title.innerHTML += ` (${sensorId})`;
-
       const summary = document.createElement("p");
       summary.className = "summary-box";
       summary.textContent = "🌡️ -- °C • 💧 -- %";
-
       const canvas = document.createElement("canvas");
       canvas.id = `chart-${sensorId}`;
-
       const table = document.createElement("table");
       table.className = "sensor-data-table";
       table.innerHTML = `
         <thead>
-          <tr><th>Time</th><th>Temp (°C)</th><th>Humidity (%)</th></tr>
+          <tr><th>Hora</th><th>Temp (°C)</th><th>Humidade (%)</th></tr>
         </thead>
         <tbody id="table-body-${sensorId}"></tbody>
       `;
-
       const exportCsvBtn = document.createElement("button");
-      exportCsvBtn.textContent = "Export CSV";
+      exportCsvBtn.textContent = "Exportar CSV";
       exportCsvBtn.className = "export-btn";
       exportCsvBtn.onclick = () => downloadCSV(sensorId);
-
       const exportXlsxBtn = document.createElement("button");
-      exportXlsxBtn.textContent = "Export XLSX";
+      exportXlsxBtn.textContent = "Exportar XLSX";
       exportXlsxBtn.className = "export-btn";
       exportXlsxBtn.onclick = () => exportXLSX(sensorId);
-
+      const buttonContainer = document.createElement("div");
+      buttonContainer.className = "btn-row";
+      buttonContainer.appendChild(exportCsvBtn);
+      buttonContainer.appendChild(exportXlsxBtn);
       container.appendChild(title);
       container.appendChild(summary);
       container.appendChild(canvas);
       container.appendChild(table);
-      container.appendChild(exportCsvBtn);
-      container.appendChild(exportXlsxBtn);
+      container.appendChild(buttonContainer);
       dashboard.appendChild(container);
-
       const ctx = canvas.getContext("2d");
       charts[sensorId] = new Chart(ctx, {
         type: "line",
@@ -188,15 +381,17 @@
           labels: [],
           datasets: [
             {
-              label: "Temperature (°C)",
+              label: "Temperatura (°C)",
               data: [],
               borderColor: "#e74c3c",
+              borderWidth: 3,
               fill: false,
             },
             {
-              label: "Humidity (%)",
+              label: "Humidade (%)",
               data: [],
               borderColor: "#3498db",
+              borderWidth: 3,
               fill: false,
             }
           ]
@@ -209,19 +404,21 @@
             x: {
               type: 'time',
               time: { unit: 'minute' },
-              title: { display: true, text: 'Time' }
+              ticks: { font: { size: 14 } },
+              title: { display: true, text: 'Hora', font: { size: 14 } }
             },
             y: {
               beginAtZero: true,
-              title: { display: true, text: 'Value' }
+              ticks: { font: { size: 14 } },
+              title: { display: true, text: 'Valor', font: { size: 14 } }
             }
           },
           plugins: {
-            legend: { position: 'bottom' },
+            legend: { position: 'bottom', labels: { font: { size: 14 } } },
             tooltip: {
-              callbacks: {
-                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}`
-              }
+              bodyFont: { size: 14 },
+              titleFont: { size: 14 },
+              callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}` }
             }
           }
         }
@@ -229,50 +426,55 @@
     }
 
     async function loadHistory(sensorId) {
-      try {
-        const res = await fetch(`/api/devices/${sensorId}/history?limit=50`);
-        const data = await res.json();
+  try {
+    const res = await fetch(`/api/devices/${sensorId}/history?limit=50`);
+    const data = await res.json();
+    const chart = charts[sensorId];
+    dataStore[sensorId] = [];
+    
+    // Get the table body and clear its content
+    const tbody = document.getElementById(`table-body-${sensorId}`);
+    tbody.innerHTML = "";
+    
+    // Only use the 5 most recent records (assuming data is already sorted descending)
+    const recentData = data.slice(0, 5);
+    
+    recentData.forEach(({ timestamp, temperature, humidity }) => {
+      const time = new Date(timestamp);
+      if (isNaN(time)) return;
+      
+      // Update chart and dataStore
+      chart.data.labels.push(time);
+      chart.data.datasets[0].data.push(temperature);
+      chart.data.datasets[1].data.push(humidity);
+      dataStore[sensorId].push({
+        timestamp: time.toISOString(),
+        temperature,
+        humidity
+      });
+      
+      // Create a new table row and append it
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${time.toLocaleTimeString()}</td>
+        <td>${temperature.toFixed(2)}</td>
+        <td>${humidity.toFixed(2)}</td>
+      `;
+      tbody.appendChild(row);
+    });
+    chart.update();
+  } catch (err) {
+    console.error(`Falha ao carregar histórico para ${sensorId}:`, err);
+  }
+}
 
-        const chart = charts[sensorId];
-        dataStore[sensorId] = [];
-
-        data.forEach(({ timestamp, temperature, humidity }) => {
-          const time = new Date(timestamp);
-          if (isNaN(time)) return;
-
-          chart.data.labels.push(time);
-          chart.data.datasets[0].data.push(temperature);
-          chart.data.datasets[1].data.push(humidity);
-
-          dataStore[sensorId].push({
-            timestamp: time.toISOString(),
-            temperature,
-            humidity
-          });
-
-          const tbody = document.getElementById(`table-body-${sensorId}`);
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${time.toLocaleTimeString()}</td>
-            <td>${temperature.toFixed(2)}</td>
-            <td>${humidity.toFixed(2)}</td>
-          `;
-          tbody.prepend(row);
-        });
-
-        chart.update();
-      } catch (err) {
-        console.error(`Failed to load history for ${sensorId}:`, err);
-      }
-    }
 
     function updateCard(sensorId, timestamp, temperature, humidity) {
-      const parsed = new Date(Number(timestamp));
+      const parsed = new Date(timestamp);
       if (isNaN(parsed)) {
-        console.warn(`⚠️ Skipping invalid timestamp for ${sensorId}:`, timestamp);
+        console.warn(`⚠️ Timestamp inválido para ${sensorId}:`, timestamp);
         return;
       }
-
       const chart = charts[sensorId];
       chart.data.labels.push(parsed);
       chart.data.datasets[0].data.push(temperature);
@@ -283,18 +485,15 @@
         chart.data.datasets[1].data.shift();
       }
       chart.update();
-
       dataStore[sensorId].push({
         timestamp: parsed.toISOString(),
         temperature,
         humidity
       });
-
       const summaryBox = document.querySelector(`#sensor-${sensorId} .summary-box`);
       if (summaryBox) {
         summaryBox.textContent = `🌡️ ${temperature.toFixed(2)}°C • 💧 ${humidity.toFixed(2)}%`;
       }
-
       const tbody = document.getElementById(`table-body-${sensorId}`);
       if (tbody) {
         const row = document.createElement("tr");
@@ -345,8 +544,24 @@
         const ws = XLSX.utils.aoa_to_sheet(sheet);
         XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 30));
       }
-      XLSX.writeFile(wb, "all-sensors.xlsx");
+      XLSX.writeFile(wb, "todos-sensores.xlsx");
     }
+    async function exportData() {
+  const startDate = document.getElementById('export-start').value;
+  const endDate = document.getElementById('export-end').value;
+  const aggregationTimeFrame = document.getElementById('aggregation-timeframe').value;
+  
+  // Use default dates (set in DOMContentLoaded) if not provided
+  const res = await fetch(`/api/aggregates/export?startDate=${startDate}&endDate=${endDate}&timeFrame=${aggregationTimeFrame}`);
+  const blob = await res.blob();
+  const now = new Date();
+  const fileName = `${now.toISOString().slice(0,16).replace(/[:T]/g, '-')}_Dados-Agregados.csv`;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = fileName;
+  link.click();
+}
+
 
     document.addEventListener('blur', async (e) => {
       if (e.target.classList.contains('sensor-name')) {
@@ -361,17 +576,18 @@
             });
             if (res.ok) {
               sensorNames[sensorId] = newName;
-              console.log(`✅ Updated name for ${sensorId} -> ${newName}`);
+              console.log(`✅ Nome atualizado para ${sensorId} -> ${newName}`);
             } else {
-              console.warn(`❌ Failed to update name for ${sensorId}`);
+              console.warn(`❌ Falha ao atualizar nome para ${sensorId}`);
             }
           } catch (err) {
-            console.error("❌ Error updating name:", err);
+            console.error("❌ Erro ao atualizar nome:", err);
           }
         }
       }
     }, true);
 
+    // Inicialização
     fetchSummaryAndUpdate();
     setInterval(fetchSummaryAndUpdate, 10000);
   </script>

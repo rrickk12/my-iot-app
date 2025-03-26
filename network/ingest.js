@@ -1,39 +1,37 @@
-// network/ingest.js
-const express = require('express');
+// services/fetchAndStore.js
+const axios = require('axios');
 const { insertReading } = require('../db/storage');
-const router = express.Router();
 
-router.post('/ingest', async (req, res) => {
-  const data = req.body;
+const SENSOR_ENDPOINT = 'http://192.168.15.11:5000/data';
 
-  if (!Array.isArray(data)) {
-    return res.status(400).json({ error: 'Expected array of data objects.' });
-  }
+async function fetchAndStoreSensorData() {
+  try {
+    const { data } = await axios.get(SENSOR_ENDPOINT);
 
-  for (const item of data) {
-    if (
-      item.type === 'MST01' &&
-      item.mac &&
-      item.temperature !== undefined &&
-      item.humidity !== undefined
-    ) {
-      try {
-        await insertReading({
-          sensorId: item.mac,
-          timestamp: new Date(item.timestamp).getTime(),
-          temperature: item.temperature,
-          humidity: item.humidity,
-          rawHex: null
-        });
-
-        console.log(`📥 Ingested: ${item.mac} | ${item.temperature}°C | ${item.humidity}%`);
-      } catch (err) {
-        console.error(`❌ Failed to insert ${item.mac}:`, err.message);
-      }
+    if (!Array.isArray(data)) {
+      console.warn("❗ Formato inesperado da resposta do endpoint.");
+      return;
     }
+
+    // Process each data item concurrently
+    await Promise.all(
+      data.map(async (item) => {
+        const { type, mac, temperature, humidity } = item;
+        if (type === 'MST01' && temperature != null && humidity != null) {
+          await insertReading({
+            sensorId: mac,
+            timestamp: new Date().toISOString(),
+            temperature,
+            humidity,
+            rawHex: null
+          });
+          console.log(`✅ Stored: ${mac} | ${temperature} °C | ${humidity} %`);
+        }
+      })
+    );
+  } catch (err) {
+    console.error("❌ Failed to fetch/store sensor data:", err.message);
   }
+}
 
-  res.json({ status: 'ok' });
-});
-
-module.exports = router;
+module.exports = fetchAndStoreSensorData;
